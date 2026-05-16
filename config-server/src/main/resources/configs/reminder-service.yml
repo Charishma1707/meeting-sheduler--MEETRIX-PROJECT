@@ -1,0 +1,11 @@
+spring:
+  kafka:
+    bootstrap-servers: localhost:9092
+
+reminder:
+  withinMinutes: 15
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
