@@ -11,18 +11,19 @@ import java.util.List;
 @Configuration
 public class CorsConfig {
 
+    
     @Bean
-    public CorsWebFilter corsWebFilter() {
-        CorsConfiguration corsConfig = new CorsConfiguration();
-        corsConfig.setAllowedOrigins(List.of("http://localhost:3000"));
-        corsConfig.setMaxAge(3600L);
-        corsConfig.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        corsConfig.setAllowedHeaders(List.of("*", "Authorization"));
-        corsConfig.setAllowCredentials(true);
+public CorsWebFilter corsWebFilter() {
+    CorsConfiguration corsConfig = new CorsConfiguration();
+    corsConfig.setAllowedOrigins(List.of("http://localhost:3000", "http://localhost:5173"));
+    corsConfig.setMaxAge(3600L);
+    corsConfig.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+    corsConfig.setAllowedHeaders(List.of("*", "Authorization"));
+    corsConfig.setAllowCredentials(true);
 
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", corsConfig);
+    UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+    source.registerCorsConfiguration("/api/**", corsConfig);  
 
-        return new CorsWebFilter(source);
-    }
+    return new CorsWebFilter(source);
+}
 }

@@ -7,6 +7,8 @@ import java.util.UUID;
 public record InviteResponse(
     UUID id,
     UUID inviteeId,
+    String inviteeName,
+    String inviteeEmail,
     InviteStatus status,
     Instant respondedAt
 ) {}

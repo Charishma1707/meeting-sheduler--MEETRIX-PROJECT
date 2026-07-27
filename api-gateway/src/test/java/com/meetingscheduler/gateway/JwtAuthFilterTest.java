@@ -61,6 +61,40 @@ public class JwtAuthFilterTest {
     }
 
     @Test
+    public void filter_optionsRequest_proceedsWithoutTokenCheck() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.options("/api/auth/refresh")
+        );
+
+        when(chain.filter(any(ServerWebExchange.class))).thenReturn(Mono.empty());
+
+        Mono<Void> result = jwtAuthFilter.filter(exchange, chain);
+
+        StepVerifier.create(result)
+                .verifyComplete();
+
+        verify(chain, times(1)).filter(exchange);
+        assertThat(exchange.getResponse().getStatusCode()).isNull();
+    }
+
+    @Test
+    public void filter_webSocketHandshakePath_proceedsWithoutTokenCheck() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/ws/info")
+        );
+
+        when(chain.filter(any(ServerWebExchange.class))).thenReturn(Mono.empty());
+
+        Mono<Void> result = jwtAuthFilter.filter(exchange, chain);
+
+        StepVerifier.create(result)
+                .verifyComplete();
+
+        verify(chain, times(1)).filter(exchange);
+        assertThat(exchange.getResponse().getStatusCode()).isNull();
+    }
+
+    @Test
     public void filter_validToken_addsUserIdAndEmailHeaders() {
         String token = Jwts.builder()
                 .subject("user-123")

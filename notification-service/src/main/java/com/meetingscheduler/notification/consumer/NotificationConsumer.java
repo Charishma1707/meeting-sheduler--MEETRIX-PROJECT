@@ -4,10 +4,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.meetingscheduler.notification.client.UserServiceClient;
 import com.meetingscheduler.notification.dto.BatchUserRequest;
-import com.meetingscheduler.notification.dto.NotificationPayload;
-import com.meetingscheduler.notification.dto.NotificationPreference;
 import com.meetingscheduler.notification.dto.UserProfileResponse;
-import com.meetingscheduler.notification.service.EmailService;
+import com.meetingscheduler.notification.service.AsyncNotificationSender;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.DltHandler;
@@ -16,11 +14,9 @@ import org.springframework.kafka.annotation.RetryableTopic;
 import org.springframework.kafka.retrytopic.TopicSuffixingStrategy;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.handler.annotation.Header;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.retry.annotation.Backoff;
 import org.springframework.stereotype.Component;
 
-import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -30,8 +26,7 @@ import java.util.stream.Collectors;
 public class NotificationConsumer {
 
     private final UserServiceClient userServiceClient;
-    private final EmailService emailService;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final AsyncNotificationSender asyncNotificationSender;
     private final ObjectMapper objectMapper;
 
     @RetryableTopic(
@@ -69,26 +64,7 @@ public class NotificationConsumer {
                 UserProfileResponse invitee = profileMap.get(inviteeId);
                 if (invitee == null) continue;
 
-                NotificationPreference preference = invitee.notificationPreference();
-
-                if (preference == NotificationPreference.IN_APP || preference == NotificationPreference.BOTH) {
-                    NotificationPayload wsPayload = new NotificationPayload(
-                            "INVITE_RECEIVED",
-                            "New invite",
-                            organizerName + " invited you to " + title,
-                            eventId,
-                            Instant.now()
-                    );
-                    messagingTemplate.convertAndSendToUser(inviteeId.toString(), "/queue/notifications", wsPayload);
-                }
-
-                if (preference == NotificationPreference.EMAIL || preference == NotificationPreference.BOTH) {
-                    String emailBody = String.format(
-                            "Hi %s,\n\nYou have been invited to a new meeting: '%s'.\nOrganizer: %s\nStart Time: %s (%s)\n\nPlease log in to respond.",
-                            invitee.name(), title, organizerName, startTime, timezone
-                    );
-                    emailService.send(invitee.email(), "Meeting Invite: " + title, emailBody);
-                }
+                asyncNotificationSender.sendMeetingCreatedAsync(invitee, eventId, title, organizerName, startTime, timezone);
             }
         } catch (Exception e) {
             log.error("Error processing meeting.created event", e);
@@ -121,23 +97,7 @@ public class NotificationConsumer {
                 UserProfileResponse invitee = profileMap.get(inviteeId);
                 if (invitee == null) continue;
 
-                NotificationPreference preference = invitee.notificationPreference();
-
-                if (preference == NotificationPreference.IN_APP || preference == NotificationPreference.BOTH) {
-                    NotificationPayload wsPayload = new NotificationPayload(
-                            "MEETING_CANCELLED",
-                            "Meeting Cancelled",
-                            "Meeting has been cancelled: " + title,
-                            eventId,
-                            Instant.now()
-                    );
-                    messagingTemplate.convertAndSendToUser(inviteeId.toString(), "/queue/notifications", wsPayload);
-                }
-
-                if (preference == NotificationPreference.EMAIL || preference == NotificationPreference.BOTH) {
-                    String emailBody = String.format("Hi %s,\n\nThe meeting '%s' has been cancelled.", invitee.name(), title);
-                    emailService.send(invitee.email(), "Meeting Cancelled: " + title, emailBody);
-                }
+                asyncNotificationSender.sendMeetingCancelledAsync(invitee, eventId, title);
             }
         } catch (Exception e) {
             log.error("Error processing meeting.cancelled event", e);
@@ -170,23 +130,7 @@ public class NotificationConsumer {
                 UserProfileResponse invitee = profileMap.get(inviteeId);
                 if (invitee == null) continue;
 
-                NotificationPreference preference = invitee.notificationPreference();
-
-                if (preference == NotificationPreference.IN_APP || preference == NotificationPreference.BOTH) {
-                    NotificationPayload wsPayload = new NotificationPayload(
-                            "MEETING_UPDATED",
-                            "Meeting Updated",
-                            "Meeting details updated: " + title,
-                            eventId,
-                            Instant.now()
-                    );
-                    messagingTemplate.convertAndSendToUser(inviteeId.toString(), "/queue/notifications", wsPayload);
-                }
-
-                if (preference == NotificationPreference.EMAIL || preference == NotificationPreference.BOTH) {
-                    String emailBody = String.format("Hi %s,\n\nThe details for the meeting '%s' have been updated.", invitee.name(), title);
-                    emailService.send(invitee.email(), "Meeting Updated: " + title, emailBody);
-                }
+                asyncNotificationSender.sendMeetingUpdatedAsync(invitee, eventId, title);
             }
         } catch (Exception e) {
             log.error("Error processing meeting.updated event", e);
@@ -217,23 +161,7 @@ public class NotificationConsumer {
             UserProfileResponse organizer = profileMap.get(organizerId);
 
             if (organizer != null && invitee != null) {
-                NotificationPreference preference = organizer.notificationPreference();
-
-                if (preference == NotificationPreference.IN_APP || preference == NotificationPreference.BOTH) {
-                    NotificationPayload wsPayload = new NotificationPayload(
-                            "RSVP_UPDATE",
-                            "RSVP Response Received",
-                            invitee.name() + " has " + status + " your invite.",
-                            eventId,
-                            Instant.now()
-                    );
-                    messagingTemplate.convertAndSendToUser(organizerId.toString(), "/queue/notifications", wsPayload);
-                }
-
-                if (preference == NotificationPreference.EMAIL || preference == NotificationPreference.BOTH) {
-                    String emailBody = String.format("Hi %s,\n\n%s has %s your meeting invitation.", organizer.name(), invitee.name(), status);
-                    emailService.send(organizer.email(), "RSVP Update: " + invitee.name(), emailBody);
-                }
+                asyncNotificationSender.sendRsvpUpdatedAsync(organizer, invitee, eventId, status);
             }
         } catch (Exception e) {
             log.error("Error processing rsvp.updated event", e);
@@ -253,10 +181,19 @@ public class NotificationConsumer {
         try {
             Map<String, Object> payload = objectMapper.readValue(message, new TypeReference<Map<String, Object>>() {});
             UUID eventId = UUID.fromString((String) payload.get("eventId"));
-            String title = (String) payload.get("title");
-            List<UUID> attendeeIds = ((List<String>) payload.get("attendeeIds")).stream()
-                    .map(UUID::fromString)
-                    .toList();
+            
+            Map<String, Object> innerPayload = (Map<String, Object>) payload.get("payload");
+            String title = "";
+            List<UUID> attendeeIds = Collections.emptyList();
+            if (innerPayload != null) {
+                title = (String) innerPayload.get("title");
+                List<String> inviteeIds = (List<String>) innerPayload.get("inviteeIds");
+                if (inviteeIds != null) {
+                    attendeeIds = inviteeIds.stream()
+                            .map(UUID::fromString)
+                            .toList();
+                }
+            }
 
             List<UserProfileResponse> profiles = userServiceClient.getProfilesBatch(new BatchUserRequest(attendeeIds));
             Map<UUID, UserProfileResponse> profileMap = profiles.stream()
@@ -266,23 +203,7 @@ public class NotificationConsumer {
                 UserProfileResponse attendee = profileMap.get(attendeeId);
                 if (attendee == null) continue;
 
-                NotificationPreference preference = attendee.notificationPreference();
-
-                if (preference == NotificationPreference.IN_APP || preference == NotificationPreference.BOTH) {
-                    NotificationPayload wsPayload = new NotificationPayload(
-                            "REMINDER",
-                            "Meeting Reminder",
-                            "Meeting: " + title + " starts in 15 minutes.",
-                            eventId,
-                            Instant.now()
-                    );
-                    messagingTemplate.convertAndSendToUser(attendeeId.toString(), "/queue/notifications", wsPayload);
-                }
-
-                if (preference == NotificationPreference.EMAIL || preference == NotificationPreference.BOTH) {
-                    String emailBody = String.format("Hi %s,\n\nYour meeting '%s' starts in 15 minutes.", attendee.name(), title);
-                    emailService.send(attendee.email(), "Meeting Reminder: " + title, emailBody);
-                }
+                asyncNotificationSender.sendReminderAsync(attendee, eventId, title);
             }
         } catch (Exception e) {
             log.error("Error processing reminder.trigger event", e);

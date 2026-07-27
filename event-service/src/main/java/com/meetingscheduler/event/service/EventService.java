@@ -24,7 +24,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.*;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 @Service
 @RequiredArgsConstructor
@@ -38,6 +41,8 @@ public class EventService {
     private final UserServiceClient userServiceClient;
     private final AvailabilityServiceClient availabilityServiceClient;
     private final KafkaEventPublisher kafkaEventPublisher;
+    @Qualifier("eventTaskExecutor")
+    private final Executor eventTaskExecutor;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Transactional
@@ -61,7 +66,18 @@ public class EventService {
         allUserIds.addAll(request.inviteeIds());
         List<UUID> uniqueUserIds = allUserIds.stream().distinct().toList();
 
-        List<UserProfileResponse> users = userServiceClient.batchGetUsers(new BatchUserRequest(uniqueUserIds));
+        // Execute both Feign calls concurrently
+        CompletableFuture<List<UserProfileResponse>> usersFuture = CompletableFuture.supplyAsync(
+                () -> userServiceClient.batchGetUsers(new BatchUserRequest(uniqueUserIds)), eventTaskExecutor);
+
+        CompletableFuture<ConflictCheckResponse> conflictFuture = CompletableFuture.supplyAsync(
+                () -> availabilityServiceClient.checkConflicts(new ConflictCheckRequest(uniqueUserIds, startInstant, endInstant)), eventTaskExecutor);
+
+        CompletableFuture.allOf(usersFuture, conflictFuture).join();
+
+        List<UserProfileResponse> users = usersFuture.join();
+        ConflictCheckResponse conflictResponse = conflictFuture.join();
+
         if (users.size() < uniqueUserIds.size()) {
             throw new ResourceNotFoundException("One or more user profiles could not be found");
         }
@@ -69,10 +85,8 @@ public class EventService {
         Map<UUID, String> userNameMap = users.stream()
                 .collect(Collectors.toMap(UserProfileResponse::id, UserProfileResponse::name));
 
-        // 3. Check for conflicts
-        ConflictCheckResponse conflictResponse = availabilityServiceClient.checkConflicts(
-                new ConflictCheckRequest(uniqueUserIds, startInstant, endInstant)
-        );
+        Map<UUID, UserProfileResponse> userProfileMap = users.stream()
+                .collect(Collectors.toMap(UserProfileResponse::id, user -> user));
         if (conflictResponse.hasConflict() && !conflictResponse.conflicts().isEmpty()) {
             ConflictDetail first = conflictResponse.conflicts().get(0);
             String name = userNameMap.getOrDefault(first.userId(), first.userId().toString());
@@ -119,7 +133,7 @@ public class EventService {
         // 7. Publish to Kafka
         kafkaEventPublisher.publishMeetingCreated(event, request.inviteeIds());
 
-        return mapToEventResponse(event, invites, rule, zoneId);
+        return mapToEventResponse(event, invites, rule, zoneId, organizerId, userProfileMap);
     }
 
     @Transactional(readOnly = true)
@@ -130,11 +144,26 @@ public class EventService {
         List<EventInvite> invites = eventInviteRepository.findByEventId(id);
         RecurringRule rule = recurringRuleRepository.findByEventId(id).orElse(null);
 
-        // Get requesting user's timezone
-        UserProfileResponse requestingUser = userServiceClient.getMyProfile(requestingUserId.toString());
-        ZoneId zoneId = ZoneId.of(requestingUser.timezone());
+        Set<UUID> userIds = new HashSet<>();
+        userIds.add(event.getOrganizerId());
+        invites.forEach(invite -> userIds.add(invite.getInviteeId()));
 
-        return mapToEventResponse(event, invites, rule, zoneId);
+        // Get requesting user's timezone and load user display names concurrently
+        CompletableFuture<UserProfileResponse> requestingUserFuture = CompletableFuture.supplyAsync(
+                () -> userServiceClient.getMyProfile(requestingUserId.toString()), eventTaskExecutor);
+
+        CompletableFuture<List<UserProfileResponse>> usersFuture = CompletableFuture.supplyAsync(
+                () -> userServiceClient.batchGetUsers(new BatchUserRequest(new ArrayList<>(userIds))), eventTaskExecutor);
+
+        CompletableFuture.allOf(requestingUserFuture, usersFuture).join();
+
+        UserProfileResponse requestingUser = requestingUserFuture.join();
+        List<UserProfileResponse> users = usersFuture.join();
+        ZoneId zoneId = ZoneId.of(requestingUser.timezone());
+        Map<UUID, UserProfileResponse> userProfileMap = users.stream()
+                .collect(Collectors.toMap(UserProfileResponse::id, user -> user));
+
+        return mapToEventResponse(event, invites, rule, zoneId, requestingUserId, userProfileMap);
     }
 
     @Transactional
@@ -165,7 +194,18 @@ public class EventService {
         allUserIds.addAll(request.inviteeIds());
         List<UUID> uniqueUserIds = allUserIds.stream().distinct().toList();
 
-        List<UserProfileResponse> users = userServiceClient.batchGetUsers(new BatchUserRequest(uniqueUserIds));
+        // Execute both Feign calls concurrently
+        CompletableFuture<List<UserProfileResponse>> usersFuture = CompletableFuture.supplyAsync(
+                () -> userServiceClient.batchGetUsers(new BatchUserRequest(uniqueUserIds)), eventTaskExecutor);
+
+        CompletableFuture<ConflictCheckResponse> conflictFuture = CompletableFuture.supplyAsync(
+                () -> availabilityServiceClient.checkConflicts(new ConflictCheckRequest(uniqueUserIds, startInstant, endInstant)), eventTaskExecutor);
+
+        CompletableFuture.allOf(usersFuture, conflictFuture).join();
+
+        List<UserProfileResponse> users = usersFuture.join();
+        ConflictCheckResponse conflictResponse = conflictFuture.join();
+
         if (users.size() < uniqueUserIds.size()) {
             throw new ResourceNotFoundException("One or more user profiles could not be found");
         }
@@ -173,10 +213,8 @@ public class EventService {
         Map<UUID, String> userNameMap = users.stream()
                 .collect(Collectors.toMap(UserProfileResponse::id, UserProfileResponse::name));
 
-        // Recheck conflicts (excluding the current event id)
-        ConflictCheckResponse conflictResponse = availabilityServiceClient.checkConflicts(
-                new ConflictCheckRequest(uniqueUserIds, startInstant, endInstant)
-        );
+        Map<UUID, UserProfileResponse> userProfileMap = users.stream()
+                .collect(Collectors.toMap(UserProfileResponse::id, user -> user));
         if (conflictResponse.hasConflict() && !conflictResponse.conflicts().isEmpty()) {
             ConflictDetail conflict = conflictResponse.conflicts().stream()
                     .filter(c -> !c.conflictingEventId().equals(id))
@@ -229,7 +267,7 @@ public class EventService {
         // Publish to Kafka
         kafkaEventPublisher.publishMeetingUpdated(event, request.inviteeIds());
 
-        return mapToEventResponse(event, newInvites, rule, zoneId);
+        return mapToEventResponse(event, newInvites, rule, zoneId, requestingUserId, userProfileMap);
     }
 
     @Transactional
@@ -273,8 +311,16 @@ public class EventService {
         Map<UUID, RecurringRule> rulesMap = allRules.stream()
                 .collect(Collectors.toMap(r -> r.getEvent().getId(), r -> r));
 
-        // Get requesting user timezone
-        UserProfileResponse requestingUser = userServiceClient.getMyProfile(userId.toString());
+        Set<UUID> allUserIds = new HashSet<>();
+        allUserIds.add(userId);
+        events.forEach(event -> allUserIds.add(event.getOrganizerId()));
+        allInvites.forEach(invite -> allUserIds.add(invite.getInviteeId()));
+
+        List<UserProfileResponse> users = userServiceClient.batchGetUsers(new BatchUserRequest(new ArrayList<>(allUserIds)));
+        Map<UUID, UserProfileResponse> userProfileMap = users.stream()
+                .collect(Collectors.toMap(UserProfileResponse::id, user -> user));
+
+        UserProfileResponse requestingUser = userProfileMap.get(userId);
         ZoneId displayZone = ZoneId.of(requestingUser.timezone());
 
         List<EventResponse> flatList = new ArrayList<>();
@@ -286,7 +332,7 @@ public class EventService {
             if (rule == null) {
                 // Non-recurring: check overlap with [from, to]
                 if (event.getEndTime().isAfter(from) && event.getStartTime().isBefore(to)) {
-                    flatList.add(mapToEventResponse(event, invites, null, displayZone));
+                    flatList.add(mapToEventResponse(event, invites, null, displayZone, userId, userProfileMap));
                 }
             } else {
                 // Recurring: expand occurrences
@@ -306,7 +352,7 @@ public class EventService {
                             .createdAt(event.getCreatedAt())
                             .updatedAt(event.getUpdatedAt())
                             .build();
-                    flatList.add(mapToEventResponse(virtualEvent, invites, rule, displayZone));
+                    flatList.add(mapToEventResponse(virtualEvent, invites, rule, displayZone, userId, userProfileMap));
                 }
             }
         }
@@ -336,7 +382,16 @@ public class EventService {
         kafkaEventPublisher.publishRsvpUpdated(invite, event);
 
         ZoneId displayZone = ZoneId.of(event.getTimezone());
-        return mapToEventResponse(event, allInvites, rule, displayZone);
+
+        Set<UUID> allUserIds = new HashSet<>();
+        allUserIds.add(event.getOrganizerId());
+        allInvites.forEach(i -> allUserIds.add(i.getInviteeId()));
+
+        List<UserProfileResponse> users = userServiceClient.batchGetUsers(new BatchUserRequest(new ArrayList<>(allUserIds)));
+        Map<UUID, UserProfileResponse> userProfileMap = users.stream()
+                .collect(Collectors.toMap(UserProfileResponse::id, user -> user));
+
+        return mapToEventResponse(event, allInvites, rule, displayZone, inviteeId, userProfileMap);
     }
 
     @Transactional(readOnly = true)
@@ -432,14 +487,24 @@ public class EventService {
                     List<EventInvite> invites = invitesMap.getOrDefault(event.getId(), Collections.emptyList());
                     RecurringRule rule = rulesMap.get(event.getId());
                     ZoneId zoneId = ZoneId.of(event.getTimezone()); // Organizer's timezone
-                    return mapToEventResponse(event, invites, rule, zoneId);
+                    return mapToEventResponse(event, invites, rule, zoneId, null, Collections.emptyMap());
                 })
                 .toList();
     }
 
-    private EventResponse mapToEventResponse(Event event, List<EventInvite> invites, RecurringRule rule, ZoneId displayZone) {
+    private EventResponse mapToEventResponse(Event event, List<EventInvite> invites, RecurringRule rule, ZoneId displayZone, UUID requestingUserId, Map<UUID, UserProfileResponse> userProfileMap) {
         List<InviteResponse> inviteResponses = invites.stream()
-                .map(i -> new InviteResponse(i.getId(), i.getInviteeId(), i.getStatus(), i.getRespondedAt()))
+                .map(i -> {
+                    UserProfileResponse profile = userProfileMap.get(i.getInviteeId());
+                    return new InviteResponse(
+                            i.getId(),
+                            i.getInviteeId(),
+                            profile != null ? profile.name() : null,
+                            profile != null ? profile.email() : null,
+                            i.getStatus(),
+                            i.getRespondedAt()
+                    );
+                })
                 .toList();
 
         RecurrenceResponse recurrenceResponse = null;
@@ -455,6 +520,29 @@ public class EventService {
         ZonedDateTime localStart = event.getStartTime().atZone(displayZone);
         ZonedDateTime localEnd = event.getEndTime().atZone(displayZone);
 
+        String organizerName = null;
+        String organizerEmail = null;
+        if (userProfileMap != null) {
+            UserProfileResponse organizerProfile = userProfileMap.get(event.getOrganizerId());
+            if (organizerProfile != null) {
+                organizerName = organizerProfile.name();
+                organizerEmail = organizerProfile.email();
+            }
+        }
+
+        String myRsvpStatus = null;
+        if (requestingUserId != null) {
+            if (event.getOrganizerId().equals(requestingUserId)) {
+                myRsvpStatus = InviteStatus.ORGANIZER.name();
+            } else {
+                InviteResponse currentInvite = inviteResponses.stream()
+                        .filter(inv -> inv.inviteeId().equals(requestingUserId))
+                        .findFirst()
+                        .orElse(null);
+                myRsvpStatus = currentInvite != null ? currentInvite.status().name() : null;
+            }
+        }
+
         return new EventResponse(
                 event.getId(),
                 event.getTitle(),
@@ -466,8 +554,11 @@ public class EventService {
                 localEnd.toLocalDateTime().toString(),
                 event.getTimezone(),
                 event.getOrganizerId(),
+                organizerName,
+                organizerEmail,
                 event.getStatus(),
                 inviteResponses,
+                myRsvpStatus,
                 recurrenceResponse
         );
     }

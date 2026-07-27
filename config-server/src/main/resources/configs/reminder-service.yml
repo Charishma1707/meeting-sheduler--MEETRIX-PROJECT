@@ -1,9 +1,16 @@
+server:
+  port: 8086
+
 spring:
+  data:
+    redis:
+      host: localhost
+      port: 6379
   kafka:
     bootstrap-servers: localhost:9092
-
-reminder:
-  withinMinutes: 15
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
 eureka:
   client:

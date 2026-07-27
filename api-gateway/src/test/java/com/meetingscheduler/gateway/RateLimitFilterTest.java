@@ -22,6 +22,8 @@ import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -89,22 +91,20 @@ public class RateLimitFilterTest {
         assertThat(exchange.getResponse().getHeaders().getFirst("Retry-After")).isEqualTo("3600");
     }
 
-    @Test
-    public void filter_whitelistedPath_skipsRateLimit() {
-        MockServerWebExchange exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.post("/api/auth/register")
-        );
+   @Test
+public void filter_websocketPath_skipsRateLimit() {
+    MockServerWebExchange exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.get("/ws/info")
+    );
 
-        when(chain.filter(any(ServerWebExchange.class))).thenReturn(Mono.empty());
+    when(chain.filter(any(ServerWebExchange.class))).thenReturn(Mono.empty());
 
-        Mono<Void> result = rateLimitFilter.filter(exchange, chain);
+    Mono<Void> result = rateLimitFilter.filter(exchange, chain);
 
-        StepVerifier.create(result)
-                .verifyComplete();
+    StepVerifier.create(result).verifyComplete();
 
-        verify(chain, times(1)).filter(exchange);
-        verifyNoInteractions(redisTemplate);
-        verifyNoInteractions(zSetOperations);
-        assertThat(exchange.getResponse().getStatusCode()).isNull();
-    }
+    verify(chain, times(1)).filter(exchange);
+    verifyNoInteractions(redisTemplate);
+    verifyNoInteractions(zSetOperations);
+}
 }

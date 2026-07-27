@@ -8,12 +8,14 @@ import com.meetingscheduler.notification.dto.BatchUserRequest;
 import com.meetingscheduler.notification.dto.NotificationPreference;
 import com.meetingscheduler.notification.dto.UserProfileResponse;
 import com.meetingscheduler.notification.service.EmailService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import com.meetingscheduler.notification.service.AsyncNotificationSender;
 
 import java.util.*;
 
@@ -35,8 +37,15 @@ public class NotificationConsumerTest {
     @Mock
     private ObjectMapper objectMapper;
 
-    @InjectMocks
+    private AsyncNotificationSender asyncNotificationSender;
+
     private NotificationConsumer notificationConsumer;
+
+    @BeforeEach
+    public void setUp() {
+        asyncNotificationSender = new AsyncNotificationSender(emailService, messagingTemplate);
+        notificationConsumer = new NotificationConsumer(userServiceClient, asyncNotificationSender, objectMapper);
+    }
 
     @Test
     @SuppressWarnings("unchecked")
@@ -182,5 +191,31 @@ public class NotificationConsumerTest {
         notificationConsumer.consumeRsvpUpdated("dummy-json");
 
         verify(messagingTemplate, times(1)).convertAndSendToUser(eq(organizerId.toString()), eq("/queue/notifications"), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void consumeReminderTrigger_notifiesAttendees() throws Exception {
+        UUID eventId = UUID.randomUUID();
+        UUID attendeeId = UUID.randomUUID();
+
+        Map<String, Object> mockPayload = new HashMap<>();
+        mockPayload.put("eventId", eventId.toString());
+
+        Map<String, Object> mockInnerPayload = new HashMap<>();
+        mockInnerPayload.put("title", "Review Meeting");
+        mockInnerPayload.put("inviteeIds", List.of(attendeeId.toString()));
+
+        mockPayload.put("payload", mockInnerPayload);
+
+        when(objectMapper.readValue(anyString(), any(TypeReference.class))).thenReturn(mockPayload);
+
+        UserProfileResponse attendee = new UserProfileResponse(attendeeId, "Attendee", "a@ex.com", "UTC", NotificationPreference.IN_APP);
+
+        when(userServiceClient.getProfilesBatch(any(BatchUserRequest.class))).thenReturn(List.of(attendee));
+
+        notificationConsumer.consumeReminderTrigger("dummy-json");
+
+        verify(messagingTemplate, times(1)).convertAndSendToUser(eq(attendeeId.toString()), eq("/queue/notifications"), any());
     }
 }

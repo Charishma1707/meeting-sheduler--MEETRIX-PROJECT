@@ -1,8 +1,15 @@
+server:
+  port: 8082
+
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5433/userdb
     username: postgres
     password: admin
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
 
 eureka:
   client:

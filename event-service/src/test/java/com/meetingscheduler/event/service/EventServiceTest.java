@@ -11,7 +11,9 @@ import com.meetingscheduler.event.kafka.KafkaEventPublisher;
 import com.meetingscheduler.event.repository.EventInviteRepository;
 import com.meetingscheduler.event.repository.EventRepository;
 import com.meetingscheduler.event.repository.RecurringRuleRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import java.util.concurrent.Executor;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -50,8 +52,20 @@ public class EventServiceTest {
     @Mock
     private RecurringRuleExpander recurringRuleExpander;
 
+    @Mock
+    private Executor eventTaskExecutor;
+
     @InjectMocks
     private EventService eventService;
+
+    @BeforeEach
+    public void setUp() {
+        lenient().doAnswer(invocation -> {
+            Runnable runnable = invocation.getArgument(0);
+            runnable.run();
+            return null;
+        }).when(eventTaskExecutor).execute(any(Runnable.class));
+    }
 
     @Test
     public void createEvent_noConflict_savesEventAndInvitesAndPublishesToKafka() {
@@ -250,12 +264,14 @@ public class EventServiceTest {
         UUID eventId = UUID.randomUUID();
         UUID inviteeId = UUID.randomUUID();
 
+        UUID organizerId = UUID.randomUUID();
         Event event = Event.builder()
                 .id(eventId)
                 .title("Design Critique")
                 .timezone("Asia/Kolkata")
                 .startTime(Instant.parse("2025-06-02T04:30:00Z"))
                 .endTime(Instant.parse("2025-06-02T05:00:00Z"))
+                .organizerId(organizerId)
                 .build();
 
         EventInvite invite = EventInvite.builder()

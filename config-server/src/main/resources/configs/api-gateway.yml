@@ -1,0 +1,54 @@
+server:
+  port: 8080
+
+spring:
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  cloud:
+    gateway:
+      routes:
+        - id: auth-service
+          uri: lb://auth-service
+          predicates:
+            - Path=/api/auth/**
+
+        - id: user-service
+          uri: lb://user-service
+          predicates:
+            - Path=/api/users/**
+
+        - id: event-service
+          uri: lb://event-service
+          predicates:
+            - Path=/api/events/**
+
+        - id: availability-service
+          uri: lb://availability-service
+          predicates:
+            - Path=/api/availability/**
+
+        - id: audit-service
+          uri: lb://audit-service
+          predicates:
+            - Path=/api/audit/**
+
+        - id: notification-ws
+          uri: lb://notification-service
+          predicates:
+            - Path=/ws/**
+          filters:
+            - StripPrefix=0    # ← add this too, was missing
+
+jwt:
+  secret: ZGV2ZWxvcG1lbnQtc2VjcmV0LWtleS1tdXN0LWJlLWF0LWxlYXN0LTMyLWJ5dGVzCg==
+
+gateway:
+  rate-limit:
+    limit: 10000
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/

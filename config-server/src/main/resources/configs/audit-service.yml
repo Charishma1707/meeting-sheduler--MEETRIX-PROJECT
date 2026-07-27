@@ -1,8 +1,17 @@
+server:
+  port: 8087
+
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5435/auditdb
     username: postgres
     password: admin
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
   kafka:
     bootstrap-servers: localhost:9092
 

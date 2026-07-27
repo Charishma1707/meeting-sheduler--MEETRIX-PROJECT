@@ -1,8 +1,15 @@
+server:
+  port: 8081
+
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/authdb
     username: postgres
     password: admin
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
   data:
     redis:
       host: localhost

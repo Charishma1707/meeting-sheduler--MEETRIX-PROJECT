@@ -23,6 +23,7 @@ public class KafkaEventPublisher {
         try {
             Map<String, Object> payload = new HashMap<>();
             payload.put("eventId", event.getId().toString());
+            payload.put("title", event.getTitle());
             payload.put("organizerId", event.getOrganizerId().toString());
             payload.put("inviteeIds", inviteeIds.stream().map(UUID::toString).toList());
             payload.put("startTime", event.getStartTime().toString());
@@ -42,6 +43,7 @@ public class KafkaEventPublisher {
         try {
             Map<String, Object> payload = new HashMap<>();
             payload.put("eventId", event.getId().toString());
+            payload.put("title", event.getTitle());
             payload.put("organizerId", event.getOrganizerId().toString());
             payload.put("inviteeIds", inviteeIds.stream().map(UUID::toString).toList());
             payload.put("startTime", event.getStartTime().toString());
@@ -61,6 +63,7 @@ public class KafkaEventPublisher {
         try {
             Map<String, Object> payload = new HashMap<>();
             payload.put("eventId", event.getId().toString());
+            payload.put("title", event.getTitle());
             payload.put("organizerId", event.getOrganizerId().toString());
             payload.put("inviteeIds", inviteeIds.stream().map(UUID::toString).toList());
 
@@ -79,6 +82,7 @@ public class KafkaEventPublisher {
             Map<String, Object> payload = new HashMap<>();
             payload.put("inviteId", invite.getId().toString());
             payload.put("eventId", event.getId().toString());
+            payload.put("organizerId", event.getOrganizerId().toString());
             payload.put("inviteeId", invite.getInviteeId().toString());
             payload.put("status", invite.getStatus().toString());
             payload.put("respondedAt", invite.getRespondedAt() != null ? invite.getRespondedAt().toString() : null);

@@ -13,6 +13,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -70,8 +72,8 @@ public class EventController {
             @RequestParam(value = "size", defaultValue = "20") int size,
             @RequestHeader("X-User-Id") String userId) {
         log.info("HTTP GET /api/events/my for user: {}", userId);
-        Instant from = Instant.parse(fromStr);
-        Instant to = Instant.parse(toStr);
+        Instant from = parseDateRangeStart(fromStr);
+        Instant to = parseDateRangeEnd(toStr);
         Pageable pageable = PageRequest.of(page, size, Sort.by("startTime").ascending());
         List<EventResponse> response = eventService.getMyEvents(UUID.fromString(userId), from, to, pageable);
         return ResponseEntity.ok(response);
@@ -103,5 +105,19 @@ public class EventController {
         log.info("HTTP GET /api/events/internal/upcoming withinMinutes: {}", withinMinutes);
         List<EventResponse> response = eventService.getUpcomingEvents(withinMinutes);
         return ResponseEntity.ok(response);
+    }
+
+    private Instant parseDateRangeStart(String value) {
+        if (value.length() == 10) {
+            return LocalDate.parse(value).atStartOfDay().toInstant(ZoneOffset.UTC);
+        }
+        return Instant.parse(value);
+    }
+
+    private Instant parseDateRangeEnd(String value) {
+        if (value.length() == 10) {
+            return LocalDate.parse(value).plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
+        }
+        return Instant.parse(value);
     }
 }

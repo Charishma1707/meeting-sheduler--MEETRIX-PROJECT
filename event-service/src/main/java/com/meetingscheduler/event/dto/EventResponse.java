@@ -16,7 +16,10 @@ public record EventResponse(
     String endTimeLocal,
     String timezone,
     UUID organizerId,
+    String organizerName,
+    String organizerEmail,
     EventStatus status,
     List<InviteResponse> invites,
+    String myRsvpStatus,
     RecurrenceResponse recurrence
 ) {}

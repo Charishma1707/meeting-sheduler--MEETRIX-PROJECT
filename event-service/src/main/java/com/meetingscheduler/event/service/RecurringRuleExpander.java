@@ -11,7 +11,8 @@ import java.time.*;
 import java.util.*;
 
 @Component
-public class RecurringRuleExpander {
+public class
+RecurringRuleExpander {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 

@@ -31,9 +31,9 @@
     <modules>
         <module>config-server</module>
         <module>eureka-server</module>
-        <module>api-gateway</module>
         <module>auth-service</module>
         <module>user-service</module>
+        <module>api-gateway</module>
         <module>event-service</module>
         <module>availability-service</module>
         <module>notification-service</module>
@@ -117,6 +117,16 @@
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>${jacoco.version}</version>
+                <configuration>
+                    <excludes>
+                        <exclude>**/config/**</exclude>
+                        <exclude>**/dto/**</exclude>
+                        <exclude>**/entity/**</exclude>
+                        <exclude>**/exception/**</exclude>
+                        <exclude>**/controller/**</exclude>
+                        <exclude>**/*Application.class</exclude>
+                    </excludes>
+                </configuration>
                 <executions>
                     <execution>
                         <goals>

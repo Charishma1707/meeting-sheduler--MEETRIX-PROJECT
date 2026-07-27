@@ -42,6 +42,14 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         String path = request.getPath().value();
         HttpMethod method = request.getMethod();
 
+        if (HttpMethod.OPTIONS.equals(method)) {
+            return chain.filter(exchange);
+        }
+
+        if (path.startsWith("/ws")) {
+            return chain.filter(exchange);
+        }
+
         // 1. Whitelist paths (skip JWT check)
         if (HttpMethod.POST.equals(method) && 
             ("/api/auth/login".equals(path) || "/api/auth/register".equals(path) || "/api/auth/refresh".equals(path))) {

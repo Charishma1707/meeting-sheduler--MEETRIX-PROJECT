@@ -16,6 +16,7 @@ export const getEventColor = (myRsvpStatus, status) => {
 const CalendarView = forwardRef(function CalendarView({ events, view, onDatesSet, onEventClick, onSelect }, ref) {
   const calendarEvents = events.map((event) => {
     const color = getEventColor(event.myRsvpStatus, event.status);
+    console.log('Event color mapping:', { title: event.title, myRsvpStatus: event.myRsvpStatus, status: event.status, color });
     return {
       id: event.id,
       title: event.title,

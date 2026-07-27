@@ -22,42 +22,37 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
     @Autowired
     private ReactiveStringRedisTemplate redisTemplate;
 
+    @org.springframework.beans.factory.annotation.Value("${gateway.rate-limit.limit:20}")
+    private int limit;
+
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         String path = exchange.getRequest().getPath().value();
 
-        // 1. Whitelist /api/auth/** from rate limiting
-        if (path.startsWith("/api/auth/")) {
+        // Whitelist auth and WebSocket paths from rate limiting
+        if (path.startsWith("/api/auth/") || path.startsWith("/ws")) {
             return chain.filter(exchange);
         }
 
-        // 2. Extract X-User-Id set by JwtAuthFilter
         List<String> userIds = exchange.getRequest().getHeaders().get("X-User-Id");
         if (userIds == null || userIds.isEmpty()) {
-            // If X-User-Id is missing on other routes, let the request flow
-            // (JwtAuthFilter would have already intercepted it, but this adds a safety net)
             return chain.filter(exchange);
         }
 
         String userId = userIds.get(0);
         String key = "rate:" + userId;
         long now = System.currentTimeMillis();
-        long windowStart = now - 3600000; // 1 hour ago
+        long windowStart = now - 3600000;
 
         Range<Double> range = Range.of(Range.Bound.unbounded(), Range.Bound.inclusive((double) windowStart));
 
-        // 3. Sliding window Redis ZSET operations:
-        //    a. ZREMRANGEBYSCORE key -inf windowStart
-        //    b. ZADD key now now
-        //    c. ZCARD key
-        //    d. EXPIRE key 3600
         return redisTemplate.opsForZSet().removeRangeByScore(key, range)
                 .then(redisTemplate.opsForZSet().add(key, String.valueOf(now), (double) now))
                 .then(redisTemplate.opsForZSet().size(key))
                 .flatMap(count -> redisTemplate.expire(key, Duration.ofSeconds(3600))
                         .then(Mono.just(count)))
                 .flatMap(count -> {
-                    if (count > 20) {
+                    if (count > limit) {
                         return handleTooManyRequests(exchange);
                     }
                     return chain.filter(exchange);
@@ -79,6 +74,6 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
 
     @Override
     public int getOrder() {
-        return -5; // Runs after JwtAuthFilter (Order: -10)
+        return -5;
     }
 }
